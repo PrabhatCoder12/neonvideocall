@@ -19,6 +19,23 @@ interface UserAccount {
   role: string;
 }
 
+// Reusable component to safely load ad scripts dynamically without breaking React
+function AdScriptBox({ src, className = "" }: { src: string; className?: string }) {
+  const scriptRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!scriptRef.current) return;
+    scriptRef.current.innerHTML = '';
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.referrerPolicy = 'no-referrer-when-downgrade';
+    scriptRef.current.appendChild(script);
+  }, [src]);
+
+  return <div ref={scriptRef} className={`flex items-center justify-center overflow-hidden ${className}`} />;
+}
+
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [userId, setUserId] = useState<string>(localStorage.getItem('userId') || '');
@@ -255,7 +272,7 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------------------
-  // LOGIN / SIGNUP VIEW (CYBERPUNK NEON MATCHING THE IMAGE)
+  // LOGIN / SIGNUP VIEW (WITH LEFT AND RIGHT ADS)
   // ---------------------------------------------------------------------------
   if (!token) {
     return (
@@ -270,106 +287,120 @@ export default function App() {
 
         {/* Perspective Road Lines */}
         <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-pink-500/10 via-cyan-500/5 to-transparent pointer-events-none z-0 border-t border-pink-500/20"></div>
-        <div className="absolute bottom-0 left-1/4 w-[2px] h-48 bg-gradient-to-t from-pink-500/80 to-transparent pointer-events-none shadow-[0_0_15px_#ec4899]"></div>
-        <div className="absolute bottom-0 right-1/4 w-[2px] h-48 bg-gradient-to-t from-cyan-400/80 to-transparent pointer-events-none shadow-[0_0_15px_#06b6d4]"></div>
 
-        {/* Main Card Container */}
-        <div className="relative z-10 w-full max-w-[420px]">
-          {/* Dual Neon Border Wrapper */}
-          <div className="p-[2px] rounded-[36px] bg-gradient-to-r from-[#f43f5e] via-[#d946ef] to-[#06b6d4] shadow-[0_0_50px_rgba(236,72,153,0.35),0_0_50px_rgba(6,182,212,0.35)]">
-            <div className="bg-[#090b16]/95 backdrop-blur-3xl rounded-[34px] p-8 sm:p-10 text-center">
-              
-              {/* Neon "N" Logo Badge */}
-              <div className="inline-flex items-center justify-center w-20 h-20 mb-4 rounded-3xl bg-transparent relative">
-                <span className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400 drop-shadow-[0_0_20px_rgba(236,72,153,0.8)] font-sans">
-                  N
-                </span>
-              </div>
+        {/* Main Content Layout with Left & Right Ads */}
+        <div className="relative z-10 w-full max-w-[1280px] flex flex-col lg:flex-row items-center justify-center gap-8">
+          
+          {/* 1st Ad Box (Left of Login Box) */}
+          <div className="hidden lg:flex flex-col items-center justify-center w-[300px] min-h-[420px] bg-[#090b16]/70 border border-slate-800 rounded-[30px] p-4 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+            <span className="text-[10px] tracking-widest text-slate-500 uppercase mb-3">Advertisement</span>
+            <AdScriptBox src="//conventionalresponse.com/b.XoVZsfdJGYlT0ZYdWHcB/-eNmP9FuWZnU/lzkOPwTXcK0eMQj/Uk2KMjTycLtFNxz-Qfy/N/TQYuyWM_QE" />
+          </div>
 
-              {/* Title & Subtitle */}
-              <h1 className="text-3xl font-black tracking-widest mb-1">
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#ff3b94] via-[#e040fb] to-[#00e5ff] drop-shadow-[0_0_12px_rgba(255,59,148,0.6)]">
-                  NEON
-                </span>
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00e5ff] to-[#00b0ff] drop-shadow-[0_0_12px_rgba(0,229,255,0.6)]">
-                  CONNECT
-                </span>
-              </h1>
-              <p className="text-slate-400 text-sm mb-8 font-light tracking-wide">
-                {isSignup ? 'Create account to access network' : 'Sign in to access network'}
-              </p>
-
-              {authError && (
-                <div className="mb-6 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-xl text-center shadow-[0_0_15px_rgba(239,68,68,0.2)]">
-                  {authError}
-                </div>
-              )}
-
-              {/* Form Controls */}
-              <form onSubmit={handleAuth} className="space-y-4">
+          {/* Main Card Container (Login Box) */}
+          <div className="w-full max-w-[420px]">
+            <div className="p-[2px] rounded-[36px] bg-gradient-to-r from-[#f43f5e] via-[#d946ef] to-[#06b6d4] shadow-[0_0_50px_rgba(236,72,153,0.35),0_0_50px_rgba(6,182,212,0.35)]">
+              <div className="bg-[#090b16]/95 backdrop-blur-3xl rounded-[34px] p-8 sm:p-10 text-center">
                 
-                {/* User ID Field */}
-                <div className="relative group">
-                  <User className="absolute left-4 top-4 text-slate-500 group-focus-within:text-pink-400 w-5 h-5 transition-colors" />
-                  <input
-                    type="text"
-                    placeholder="User ID"
-                    value={inputUserId}
-                    onChange={(e) => setInputUserId(e.target.value)}
-                    className="w-full bg-[#0d1124]/80 border border-slate-800/80 rounded-2xl py-3.5 pl-12 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all shadow-inner"
-                    required
-                  />
+                {/* Neon "N" Logo Badge */}
+                <div className="inline-flex items-center justify-center w-20 h-20 mb-4 rounded-3xl bg-transparent relative">
+                  <span className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400 drop-shadow-[0_0_20px_rgba(236,72,153,0.8)] font-sans">
+                    N
+                  </span>
                 </div>
 
-                {/* Password Field */}
-                <div className="relative group">
-                  <Lock className="absolute left-4 top-4 text-slate-500 group-focus-within:text-cyan-400 w-5 h-5 transition-colors" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Password"
-                    value={inputPassword}
-                    onChange={(e) => setInputPassword(e.target.value)}
-                    className="w-full bg-[#0d1124]/80 border border-slate-800/80 rounded-2xl py-3.5 pl-12 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all shadow-inner"
-                    required
-                  />
+                {/* Title & Subtitle */}
+                <h1 className="text-3xl font-black tracking-widest mb-1">
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#ff3b94] via-[#e040fb] to-[#00e5ff] drop-shadow-[0_0_12px_rgba(255,59,148,0.6)]">
+                    NEON
+                  </span>
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00e5ff] to-[#00b0ff] drop-shadow-[0_0_12px_rgba(0,229,255,0.6)]">
+                    CONNECT
+                  </span>
+                </h1>
+                <p className="text-slate-400 text-sm mb-8 font-light tracking-wide">
+                  {isSignup ? 'Create account to access network' : 'Sign in to access network'}
+                </p>
+
+                {authError && (
+                  <div className="mb-6 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-xl text-center shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                    {authError}
+                  </div>
+                )}
+
+                {/* Form Controls */}
+                <form onSubmit={handleAuth} className="space-y-4">
+                  
+                  {/* User ID Field */}
+                  <div className="relative group">
+                    <User className="absolute left-4 top-4 text-slate-500 group-focus-within:text-pink-400 w-5 h-5 transition-colors" />
+                    <input
+                      type="text"
+                      placeholder="User ID"
+                      value={inputUserId}
+                      onChange={(e) => setInputUserId(e.target.value)}
+                      className="w-full bg-[#0d1124]/80 border border-slate-800/80 rounded-2xl py-3.5 pl-12 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all shadow-inner"
+                      required
+                    />
+                  </div>
+
+                  {/* Password Field */}
+                  <div className="relative group">
+                    <Lock className="absolute left-4 top-4 text-slate-500 group-focus-within:text-cyan-400 w-5 h-5 transition-colors" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Password"
+                      value={inputPassword}
+                      onChange={(e) => setInputPassword(e.target.value)}
+                      className="w-full bg-[#0d1124]/80 border border-slate-800/80 rounded-2xl py-3.5 pl-12 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all shadow-inner"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-4 text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+
+                  {/* Neon Action Button */}
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      className="w-full h-13 bg-gradient-to-r from-[#ff2a8d] via-[#9a34eb] to-[#00d4ff] hover:opacity-95 text-white font-semibold text-base rounded-2xl shadow-[0_0_30px_rgba(255,42,141,0.5),0_0_30px_rgba(0,212,255,0.4)] transition-all duration-300 transform active:scale-98 flex items-center justify-center space-x-2 border border-white/20"
+                    >
+                      {isSignup ? <UserPlus className="w-5 h-5" /> : null}
+                      <span>{isSignup ? 'Create Account' : 'Sign In'}</span>
+                    </button>
+                  </div>
+                </form>
+
+                {/* Mode Switcher Link */}
+                <div className="mt-8 text-xs text-slate-400">
+                  <span>{isSignup ? 'Already have an account? ' : "Don't have an account? "}</span>
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-4 text-slate-500 hover:text-slate-300 transition-colors"
+                    onClick={() => {
+                      setIsSignup(!isSignup);
+                      setAuthError('');
+                    }}
+                    className="text-cyan-400 hover:text-cyan-300 font-semibold transition underline underline-offset-4"
                   >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    {isSignup ? 'Sign In' : 'Create One'}
                   </button>
                 </div>
 
-                {/* Neon Action Button */}
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    className="w-full h-13 bg-gradient-to-r from-[#ff2a8d] via-[#9a34eb] to-[#00d4ff] hover:opacity-95 text-white font-semibold text-base rounded-2xl shadow-[0_0_30px_rgba(255,42,141,0.5),0_0_30px_rgba(0,212,255,0.4)] transition-all duration-300 transform active:scale-98 flex items-center justify-center space-x-2 border border-white/20"
-                  >
-                    {isSignup ? <UserPlus className="w-5 h-5" /> : null}
-                    <span>{isSignup ? 'Create Account' : 'Sign In'}</span>
-                  </button>
-                </div>
-              </form>
-
-              {/* Mode Switcher Link */}
-              <div className="mt-8 text-xs text-slate-400">
-                <span>{isSignup ? 'Already have an account? ' : "Don't have an account? "}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignup(!isSignup);
-                    setAuthError('');
-                  }}
-                  className="text-cyan-400 hover:text-cyan-300 font-semibold transition underline underline-offset-4"
-                >
-                  {isSignup ? 'Sign In' : 'Create One'}
-                </button>
               </div>
-
             </div>
           </div>
+
+          {/* 2nd Ad Box (Right of Login Box) */}
+          <div className="hidden lg:flex flex-col items-center justify-center w-[300px] min-h-[420px] bg-[#090b16]/70 border border-slate-800 rounded-[30px] p-4 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+            <span className="text-[10px] tracking-widest text-slate-500 uppercase mb-3">Advertisement</span>
+            <AdScriptBox src="//conventionalresponse.com/b/X_VOsod.Gdli0dYdWXcI/Belm/9/udZaUKlzkTPPTBce0mMxjTUh1aOSDdUqtzN/zGQoy/NHTOUL4GONQ-" />
+          </div>
+
         </div>
       </div>
     );
@@ -592,39 +623,48 @@ export default function App() {
             </div>
 
             {activeCall && (
-              <div className="bg-[#090b16]/60 border border-slate-800 rounded-3xl p-5 flex flex-col h-72 backdrop-blur-md">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Stream Chat</h2>
-                <div className="flex-1 overflow-y-auto space-y-2.5 mb-3 text-xs pr-1">
-                  {messages.map((msg, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-2xl max-w-[85%] ${
-                        msg.from === userId
-                          ? 'bg-gradient-to-r from-pink-600/30 to-cyan-600/30 border border-pink-500/30 ml-auto text-pink-100'
-                          : 'bg-slate-800/60 border border-slate-700/50 text-slate-300'
-                      }`}
+              <div className="flex flex-col space-y-4">
+                {/* Chat Section */}
+                <div className="bg-[#090b16]/60 border border-slate-800 rounded-3xl p-5 flex flex-col h-72 backdrop-blur-md">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Stream Chat</h2>
+                  <div className="flex-1 overflow-y-auto space-y-2.5 mb-3 text-xs pr-1">
+                    {messages.map((msg, idx) => (
+                      <div
+                        key={idx}
+                        className={`p-3 rounded-2xl max-w-[85%] ${
+                          msg.from === userId
+                            ? 'bg-gradient-to-r from-pink-600/30 to-cyan-600/30 border border-pink-500/30 ml-auto text-pink-100'
+                            : 'bg-slate-800/60 border border-slate-700/50 text-slate-300'
+                        }`}
+                      >
+                        <span className="block text-[10px] font-bold text-slate-400 mb-1">{msg.from}</span>
+                        {msg.text}
+                      </div>
+                    ))}
+                    <div ref={chatBottomRef} />
+                  </div>
+                  <form onSubmit={sendMessage} className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder="Send message..."
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      className="flex-1 bg-[#0d1124] border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
+                    />
+                    <button
+                      type="submit"
+                      className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 p-2.5 rounded-xl transition font-bold"
                     >
-                      <span className="block text-[10px] font-bold text-slate-400 mb-1">{msg.from}</span>
-                      {msg.text}
-                    </div>
-                  ))}
-                  <div ref={chatBottomRef} />
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
                 </div>
-                <form onSubmit={sendMessage} className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Send message..."
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    className="flex-1 bg-[#0d1124] border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
-                  />
-                  <button
-                    type="submit"
-                    className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 p-2.5 rounded-xl transition font-bold"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
+
+                {/* 3rd Ad Section (Right below Stream Chat) */}
+                <div className="bg-[#090b16]/60 border border-slate-800 rounded-3xl p-4 backdrop-blur-md">
+                  <div className="text-[10px] text-slate-500 text-center uppercase tracking-widest mb-2">Sponsored Ad</div>
+                  <AdScriptBox src="//conventionalresponse.com/b.XJVYssd-GDl/0/YoW/cS/Ne-mw9suKZPUilrkbPKT/cj0tMujoU" />
+                </div>
               </div>
             )}
           </div>
