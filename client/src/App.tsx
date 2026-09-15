@@ -127,7 +127,6 @@ l.parentNode.insertBefore(s, l);
 
     socket.on('call-made', async (data: { offer: RTCSessionDescriptionInit; socket: string; fromUser: string }) => {
       if (isInCall) {
-        // Agar pehle se call mein hain aur koi doosra user call karta hai (jaise U3), toh auto accept karke mesh expand karo
         await autoAcceptCall(data.socket, data.fromUser, data.offer);
       } else {
         setIncomingCall({ fromSocketId: data.socket, fromUser: data.fromUser, offer: data.offer });
@@ -138,7 +137,7 @@ l.parentNode.insertBefore(s, l);
       const pc = peersRef.current.get(data.socket);
       if (pc) {
         try {
-          if (pc.signalingState === 'have-local-offer') {
+          if (pc.signalingState === 'have-local-offer' || pc.signalingState === 'stable') {
             await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
           }
         } catch (e) {
@@ -193,16 +192,20 @@ l.parentNode.insertBefore(s, l);
 
     peersRef.current.set(targetSocketId, pc);
 
+    // Local stream ke tracks add karein
     stream.getTracks().forEach((track) => {
       pc.addTrack(track, stream);
     });
 
+    // Remote stream receive hone par
     pc.ontrack = (event) => {
-      const incomingStream = event.streams[0];
+      const incomingStream = event.streams[0] || new MediaStream([event.track]);
       setRemotePeers((prev) => {
-        const exists = prev.find((p) => p.socketId === targetSocketId);
-        if (exists) {
-          return prev.map((p) => p.socketId === targetSocketId ? { ...p, stream: incomingStream } : p);
+        const existingIndex = prev.findIndex((p) => p.socketId === targetSocketId);
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = { ...updated[existingIndex], stream: incomingStream };
+          return updated;
         }
         return [...prev, { socketId: targetSocketId, userId: targetUserId, stream: incomingStream }];
       });
@@ -272,13 +275,20 @@ l.parentNode.insertBefore(s, l);
 
   const autoAcceptCall = async (fromSocketId: string, fromUser: string, offer: RTCSessionDescriptionInit) => {
     let stream = localStreamRef.current;
-    if (!stream) return;
+    if (!stream) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: true });
+        localStreamRef.current = stream;
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      } catch (e) {
+        console.error("Media error in auto-accept:", e);
+        return;
+      }
+    }
 
     const pc = getOrCreatePeerConnection(fromSocketId, fromUser, stream);
     try {
-      // Agar pehle se remote description set hai, toh clash avoid karne ke liye check karein
       if (pc.signalingState === 'stable' || pc.signalingState === 'have-local-offer') {
-        // Agar humne pehle offer bhej diya tha, toh rollback ya naya handle karein, ya seedha set karein
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
       } else {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -634,8 +644,13 @@ function RemoteVideoBox({ peer }: { peer: RemotePeerStream }) {
   }, [peer.stream]);
 
   return (
-    <div className="relative bg-black rounded-2xl border-2 border-slate-700 overflow-hidden shadow-2xl aspect-[4/3] flex items-center justify-center">
-      <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+    <div className="relative bg-black rounded-2xl border-2 border-emerald-500/50 overflow-hidden shadow-2xl aspect-[4/3] flex items-center justify-center">
+      <video 
+        ref={videoRef} 
+        autoPlay 
+        playsInline 
+        className="w-full h-full object-cover" 
+      />
       <span className="absolute bottom-2 left-2 bg-black/70 text-[10px] text-emerald-400 px-2 py-0.5 rounded font-mono">{peer.userId}</span>
     </div>
   );
