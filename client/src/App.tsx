@@ -25,6 +25,29 @@ interface RemotePeerStream {
   stream: MediaStream;
 }
 
+// Component to safely execute and render third-party ad scripts
+function AdBox({ scriptContent, width = '250px', height = '300px' }: { scriptContent: string; width?: string; height?: string }) {
+  const divRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!divRef.current) return;
+    divRef.current.innerHTML = '';
+    
+    const range = document.createRange();
+    range.selectNode(divRef.current);
+    const fragment = range.createContextualFragment(scriptContent);
+    divRef.current.appendChild(fragment);
+  }, [scriptContent]);
+
+  return (
+    <div 
+      ref={divRef} 
+      style={{ width, height, minWidth: width, minHeight: height }}
+      className="bg-[#090b16]/70 border border-slate-800/80 backdrop-blur-xl rounded-2xl flex flex-col items-center justify-center overflow-hidden shadow-xl"
+    />
+  );
+}
+
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [userId, setUserId] = useState<string>(localStorage.getItem('userId') || '');
@@ -63,10 +86,35 @@ export default function App() {
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-disconnect group call if no remote participants remain
+  // User's Ad Scripts (250x300)
+  const leftAdScript = `<script>
+(function(vzic){
+var d = document,
+    s = d.createElement('script'),
+    l = d.currentScript || d.scripts[d.scripts.length - 1];
+s.settings = vzic || {};
+s.src = "//conventionalresponse.com/bXXSV.sXddG/lD0/YxWzcA/VeQmC9/uXZyUqlTkePxTXce0rMyjyUV2/MOT/cltpNPz/QuycNRTOYcy_MsQh";
+s.async = true;
+s.referrerPolicy = 'no-referrer-when-downgrade';
+l.parentNode.insertBefore(s, l);
+})({})
+</script>`;
+
+  const rightAdScript = `<script>
+(function(pgnlm){
+var d = document,
+    s = d.createElement('script'),
+    l = d.currentScript || d.scripts[d.scripts.length - 1];
+s.settings = pgnlm || {};
+s.src = "//conventionalresponse.com/bHXAVRsxd.GUl/0nY/WEcu/yeJm/9-uXZuUslhk/PxTocr0LMzjUUd1MOHDwUGt-NtzSQXypN/TtU/4/ONQD";
+s.async = true;
+s.referrerPolicy = 'no-referrer-when-downgrade';
+l.parentNode.insertBefore(s, l);
+})({})
+</script>`;
+
   useEffect(() => {
     if (isInCall && remotePeers.length === 0) {
-      console.log("No remote participants left. Automatically disconnecting group call.");
       endCall();
     }
   }, [remotePeers, isInCall]);
@@ -337,7 +385,7 @@ export default function App() {
     endCall();
   };
 
-  // --- LOGIN SCREEN WITH LEFT & RIGHT ADS ---
+  // --- LOGIN SCREEN WITH 250x300 LEFT & RIGHT ADS ---
   if (!token) {
     return (
       <div className="min-h-screen bg-[#05050D] flex items-center justify-between p-4 sm:p-8 relative overflow-hidden text-white font-sans select-none">
@@ -345,13 +393,10 @@ export default function App() {
         <div className="absolute -top-32 -left-32 w-[600px] h-[600px] bg-pink-600/20 rounded-full blur-[140px] pointer-events-none"></div>
         <div className="absolute -bottom-32 -right-32 w-[600px] h-[600px] bg-cyan-500/20 rounded-full blur-[140px] pointer-events-none"></div>
 
-        {/* LEFT SIDE AD BANNER */}
-        <div className="hidden lg:flex flex-col items-center justify-center w-[240px] h-[500px] bg-[#090b16]/70 border border-slate-800/80 backdrop-blur-xl rounded-3xl p-4 text-center z-10 shadow-xl">
-          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-3">Advertisement</span>
-          <div className="flex-1 w-full bg-[#0d1124] border border-dashed border-slate-800 rounded-2xl flex flex-col items-center justify-center p-4">
-            <p className="text-xs text-slate-400 font-medium">Left Ad Space</p>
-            <span className="text-[10px] text-cyan-400/60 mt-1">(160 x 600 / Banner)</span>
-          </div>
+        {/* LEFT SIDE AD (250x300) */}
+        <div className="hidden xl:flex flex-col items-center justify-center z-10">
+          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Advertisement</span>
+          <AdBox scriptContent={leftAdScript} width="250px" height="300px" />
         </div>
 
         {/* CENTER AUTHENTICATION CARD */}
@@ -394,13 +439,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* RIGHT SIDE AD BANNER */}
-        <div className="hidden lg:flex flex-col items-center justify-center w-[240px] h-[500px] bg-[#090b16]/70 border border-slate-800/80 backdrop-blur-xl rounded-3xl p-4 text-center z-10 shadow-xl">
-          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-3">Advertisement</span>
-          <div className="flex-1 w-full bg-[#0d1124] border border-dashed border-slate-800 rounded-2xl flex flex-col items-center justify-center p-4">
-            <p className="text-xs text-slate-400 font-medium">Right Ad Space</p>
-            <span className="text-[10px] text-cyan-400/60 mt-1">(160 x 600 / Banner)</span>
-          </div>
+        {/* RIGHT SIDE AD (250x300) */}
+        <div className="hidden xl:flex flex-col items-center justify-center z-10">
+          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Advertisement</span>
+          <AdBox scriptContent={rightAdScript} width="250px" height="300px" />
         </div>
       </div>
     );
