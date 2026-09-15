@@ -89,6 +89,13 @@ export default function App() {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
+  // Ensure local video stream attaches safely when component/DOM mounts during active call
+  useEffect(() => {
+    if (activeCall && localStreamRef.current && localVideoRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+    }
+  }, [activeCall]);
+
   useEffect(() => {
     if (!token) return;
 
@@ -265,7 +272,9 @@ export default function App() {
       audio: true 
     });
     localStreamRef.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = stream;
+    }
 
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
