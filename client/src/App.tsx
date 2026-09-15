@@ -126,8 +126,8 @@ l.parentNode.insertBefore(s, l);
     });
 
     socket.on('call-made', async (data: { offer: RTCSessionDescriptionInit; socket: string; fromUser: string }) => {
-      // Agar pehle se call mein hain, toh automatic accept/connect kar lo (Group call expansion), nahi toh popup dikhao
       if (isInCall) {
+        // Agar pehle se call mein hain, toh automatic accept karke group call expand karo
         await autoAcceptCall(data.socket, data.fromUser, data.offer);
       } else {
         setIncomingCall({ fromSocketId: data.socket, fromUser: data.fromUser, offer: data.offer });
@@ -136,9 +136,11 @@ l.parentNode.insertBefore(s, l);
 
     socket.on('answer-made', async (data: { socket: string; answer: RTCSessionDescriptionInit }) => {
       const pc = peersRef.current.get(data.socket);
-      if (pc && pc.signalingState === 'have-local-offer') {
+      if (pc) {
         try {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          if (pc.signalingState === 'have-local-offer') {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          }
         } catch (e) {
           console.error("Set remote answer error:", e);
         }
@@ -180,13 +182,20 @@ l.parentNode.insertBefore(s, l);
     setRemotePeers((prev) => prev.filter((p) => p.socketId !== targetSocketId));
   };
 
-  const createPeerConnection = async (targetSocketId: string, targetUserId: string, stream: MediaStream, isInitiator: boolean) => {
-    if (peersRef.current.has(targetSocketId)) return peersRef.current.get(targetSocketId);
+  const getOrCreatePeerConnection = (targetSocketId: string, targetUserId: string, stream: MediaStream) => {
+    if (peersRef.current.has(targetSocketId)) {
+      return peersRef.current.get(targetSocketId)!;
+    }
 
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
     peersRef.current.set(targetSocketId, pc);
 
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    stream.getTracks().forEach((track) => {
+      pc.addTrack(track, stream);
+    });
 
     pc.ontrack = (event) => {
       const incomingStream = event.streams[0];
@@ -205,16 +214,9 @@ l.parentNode.insertBefore(s, l);
       }
     };
 
-    if (isInitiator) {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socketRef.current?.emit('call-user', { to: targetSocketId, offer, fromUser: userId });
-    }
-
     return pc;
   };
 
-  // 1-to-1 Call Start
   const startCall = async (targetUser: OnlineUser) => {
     setIsInCall(true);
     let stream = localStreamRef.current;
@@ -229,7 +231,15 @@ l.parentNode.insertBefore(s, l);
         return;
       }
     }
-    await createPeerConnection(targetUser.socketId, targetUser.userId, stream, true);
+
+    const pc = getOrCreatePeerConnection(targetUser.socketId, targetUser.userId, stream);
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socketRef.current?.emit('call-user', { to: targetUser.socketId, offer, fromUser: userId });
+    } catch (e) {
+      console.error("Error creating offer:", e);
+    }
   };
 
   const acceptCall = async () => {
@@ -248,27 +258,30 @@ l.parentNode.insertBefore(s, l);
       }
     }
 
-    const pc = await createPeerConnection(incomingCall.fromSocketId, incomingCall.fromUser, stream, false);
-    if (pc) {
+    const pc = getOrCreatePeerConnection(incomingCall.fromSocketId, incomingCall.fromUser, stream);
+    try {
       await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socketRef.current?.emit('make-answer', { to: incomingCall.fromSocketId, answer });
+    } catch (e) {
+      console.error("Error accepting call:", e);
     }
     setIncomingCall(null);
   };
 
-  // Auto accept when already in call (Group call mode triggered when 3rd user joins)
   const autoAcceptCall = async (fromSocketId: string, fromUser: string, offer: RTCSessionDescriptionInit) => {
     let stream = localStreamRef.current;
     if (!stream) return;
 
-    const pc = await createPeerConnection(fromSocketId, fromUser, stream, false);
-    if (pc) {
+    const pc = getOrCreatePeerConnection(fromSocketId, fromUser, stream);
+    try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socketRef.current?.emit('make-answer', { to: fromSocketId, answer });
+    } catch (e) {
+      console.error("Error auto-accepting call:", e);
     }
   };
 
@@ -536,7 +549,7 @@ l.parentNode.insertBefore(s, l);
                     <Video className="w-10 h-10 text-cyan-400" />
                   </div>
                   <h3 className="text-xl font-bold text-slate-200">Ready to Call</h3>
-                  <p className="text-slate-500 text-xs mt-2">Select any online user from the right list to start a 1-to-1 call. If a 3rd user joins, it automatically expands into a group call.</p>
+                  <p className="text-slate-500 text-xs mt-2">Select any online user from the right list to start a call.</p>
                 </div>
               )}
 
