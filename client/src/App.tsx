@@ -25,7 +25,6 @@ interface RemotePeerStream {
   stream: MediaStream;
 }
 
-// Component to safely execute and render third-party ad scripts
 function AdBox({ scriptContent, width = '250px', height = '300px' }: { scriptContent: string; width?: string; height?: string }) {
   const divRef = useRef<HTMLDivElement>(null);
 
@@ -65,7 +64,7 @@ export default function App() {
   const [allUsers, setAllUsers] = useState<UserAccount[]>([]);
   const [adminMsg, setAdminMsg] = useState('');
 
-  // WebRTC / Group Call States
+  // WebRTC / Call States
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [isInCall, setIsInCall] = useState(false);
   const [remotePeers, setRemotePeers] = useState<RemotePeerStream[]>([]);
@@ -114,12 +113,6 @@ l.parentNode.insertBefore(s, l);
 </script>`;
 
   useEffect(() => {
-    if (isInCall && remotePeers.length === 0) {
-      endCall();
-    }
-  }, [remotePeers, isInCall]);
-
-  useEffect(() => {
     if (!token) return;
 
     const socket = io(SOCKET_SERVER_URL, { auth: { token } });
@@ -133,7 +126,12 @@ l.parentNode.insertBefore(s, l);
     });
 
     socket.on('call-made', async (data: { offer: RTCSessionDescriptionInit; socket: string; fromUser: string }) => {
-      setIncomingCall({ fromSocketId: data.socket, fromUser: data.fromUser, offer: data.offer });
+      // Agar pehle se call mein hain, toh automatic accept/connect kar lo (Group call expansion), nahi toh popup dikhao
+      if (isInCall) {
+        await autoAcceptCall(data.socket, data.fromUser, data.offer);
+      } else {
+        setIncomingCall({ fromSocketId: data.socket, fromUser: data.fromUser, offer: data.offer });
+      }
     });
 
     socket.on('answer-made', async (data: { socket: string; answer: RTCSessionDescriptionInit }) => {
@@ -167,7 +165,7 @@ l.parentNode.insertBefore(s, l);
     });
 
     return () => { socket.disconnect(); };
-  }, [token, userId]);
+  }, [token, userId, isInCall]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -216,13 +214,20 @@ l.parentNode.insertBefore(s, l);
     return pc;
   };
 
+  // 1-to-1 Call Start
   const startCall = async (targetUser: OnlineUser) => {
     setIsInCall(true);
     let stream = localStreamRef.current;
     if (!stream) {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: true });
-      localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: true });
+        localStreamRef.current = stream;
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      } catch (e) {
+        console.error("Media permission error:", e);
+        setIsInCall(false);
+        return;
+      }
     }
     await createPeerConnection(targetUser.socketId, targetUser.userId, stream, true);
   };
@@ -233,9 +238,14 @@ l.parentNode.insertBefore(s, l);
     
     let stream = localStreamRef.current;
     if (!stream) {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: true });
-      localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: true });
+        localStreamRef.current = stream;
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      } catch (e) {
+        console.error("Media permission error:", e);
+        return;
+      }
     }
 
     const pc = await createPeerConnection(incomingCall.fromSocketId, incomingCall.fromUser, stream, false);
@@ -246,6 +256,20 @@ l.parentNode.insertBefore(s, l);
       socketRef.current?.emit('make-answer', { to: incomingCall.fromSocketId, answer });
     }
     setIncomingCall(null);
+  };
+
+  // Auto accept when already in call (Group call mode triggered when 3rd user joins)
+  const autoAcceptCall = async (fromSocketId: string, fromUser: string, offer: RTCSessionDescriptionInit) => {
+    let stream = localStreamRef.current;
+    if (!stream) return;
+
+    const pc = await createPeerConnection(fromSocketId, fromUser, stream, false);
+    if (pc) {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socketRef.current?.emit('make-answer', { to: fromSocketId, answer });
+    }
   };
 
   const endCall = () => {
@@ -385,21 +409,18 @@ l.parentNode.insertBefore(s, l);
     endCall();
   };
 
-  // --- LOGIN SCREEN WITH 250x300 LEFT & RIGHT ADS ---
+  // --- LOGIN SCREEN ---
   if (!token) {
     return (
       <div className="min-h-screen bg-[#05050D] flex items-center justify-between p-4 sm:p-8 relative overflow-hidden text-white font-sans select-none">
-        {/* Background Glows */}
         <div className="absolute -top-32 -left-32 w-[600px] h-[600px] bg-pink-600/20 rounded-full blur-[140px] pointer-events-none"></div>
         <div className="absolute -bottom-32 -right-32 w-[600px] h-[600px] bg-cyan-500/20 rounded-full blur-[140px] pointer-events-none"></div>
 
-        {/* LEFT SIDE AD (250x300) */}
         <div className="hidden xl:flex flex-col items-center justify-center z-10">
           <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Advertisement</span>
           <AdBox scriptContent={leftAdScript} width="250px" height="300px" />
         </div>
 
-        {/* CENTER AUTHENTICATION CARD */}
         <div className="relative z-10 w-full max-w-[420px] mx-auto">
           <div className="p-[2px] rounded-[36px] bg-gradient-to-r from-[#f43f5e] via-[#d946ef] to-[#06b6d4]">
             <div className="bg-[#090b16]/95 backdrop-blur-3xl rounded-[34px] p-8 sm:p-10 text-center">
@@ -439,7 +460,6 @@ l.parentNode.insertBefore(s, l);
           </div>
         </div>
 
-        {/* RIGHT SIDE AD (250x300) */}
         <div className="hidden xl:flex flex-col items-center justify-center z-10">
           <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Advertisement</span>
           <AdBox scriptContent={rightAdScript} width="250px" height="300px" />
@@ -448,7 +468,7 @@ l.parentNode.insertBefore(s, l);
     );
   }
 
-  // --- MAIN APP SCREEN AFTER LOGIN ---
+  // --- MAIN APP SCREEN ---
   return (
     <div className="min-h-screen bg-[#05050D] text-white flex flex-col font-sans">
       <header className="border-b border-slate-800/80 bg-[#090b16]/80 backdrop-blur-xl px-8 py-4 flex justify-between items-center sticky top-0 z-50">
@@ -515,8 +535,8 @@ l.parentNode.insertBefore(s, l);
                   <div className="w-20 h-20 rounded-3xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto mb-5">
                     <Video className="w-10 h-10 text-cyan-400" />
                   </div>
-                  <h3 className="text-xl font-bold text-slate-200">Group Call Ready</h3>
-                  <p className="text-slate-500 text-xs mt-2">Select a peer from the network list to start or expand your call.</p>
+                  <h3 className="text-xl font-bold text-slate-200">Ready to Call</h3>
+                  <p className="text-slate-500 text-xs mt-2">Select any online user from the right list to start a 1-to-1 call. If a 3rd user joins, it automatically expands into a group call.</p>
                 </div>
               )}
 
@@ -525,7 +545,7 @@ l.parentNode.insertBefore(s, l);
                   <div className="bg-[#090b16] border border-cyan-500/40 rounded-3xl p-8 text-center max-w-sm w-full">
                     <PhoneCall className="w-8 h-8 text-cyan-400 mx-auto mb-4 animate-bounce" />
                     <h4 className="text-xl font-bold text-white mb-1">Incoming Call</h4>
-                    <p className="text-slate-400 text-xs mb-6"><strong className="text-cyan-400">{incomingCall.fromUser}</strong> is joining/calling...</p>
+                    <p className="text-slate-400 text-xs mb-6"><strong className="text-cyan-400">{incomingCall.fromUser}</strong> is calling you...</p>
                     <div className="flex space-x-3">
                       <button onClick={acceptCall} className="flex-1 bg-emerald-500 text-slate-950 font-bold py-3 rounded-xl">Accept</button>
                       <button onClick={() => setIncomingCall(null)} className="flex-1 bg-slate-800 text-slate-300 py-3 rounded-xl">Decline</button>
@@ -546,7 +566,7 @@ l.parentNode.insertBefore(s, l);
                 {onlineUsers.map((user) => (
                   <div key={user.socketId} className="flex items-center justify-between p-3.5 bg-[#0d1124] border border-slate-800 rounded-2xl">
                     <span className="text-xs font-semibold">{user.userId}</span>
-                    <button onClick={() => startCall(user)} className="p-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl">
+                    <button onClick={() => startCall(user)} className="p-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl hover:bg-cyan-500/20 transition">
                       <Video className="w-4 h-4" />
                     </button>
                   </div>
