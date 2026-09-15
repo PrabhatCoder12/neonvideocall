@@ -61,7 +61,7 @@ export default function App() {
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
 
-  // Video Aspect Ratio & Draggable Box States
+  // Video Aspect Ratio & Safe Draggable Box States
   const [isPortrait, setIsPortrait] = useState(true); // true = 9:16, false = 16:9
   const [localPos, setLocalPos] = useState({ x: 24, y: 24 }); // offset from bottom-right
   const isDraggingRef = useRef(false);
@@ -111,6 +111,11 @@ export default function App() {
       }
     });
 
+    // WhatsApp style remote hangup listener
+    socket.on('call-hung-up', () => {
+      closeCallClean(false);
+    });
+
     socket.on('receive-message', (data: { from: string; text: string }) => {
       setMessages((prev) => [...prev, data]);
     });
@@ -122,8 +127,9 @@ export default function App() {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Dragging Handlers for Local Video Box
-  const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
+  // Safe Dragging Handlers (Prevents page scroll and keeps video inside bounds)
+  const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault(); // Prevents page scrolling/moving
     isDraggingRef.current = true;
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
@@ -131,34 +137,40 @@ export default function App() {
   };
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent | TouchEvent) => {
+    const handleDragMove = (e: MouseEvent | TouchEvent) => {
       if (!isDraggingRef.current) return;
+      
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
       const dx = clientX - dragStartRef.current.x;
       const dy = clientY - dragStartRef.current.y;
       dragStartRef.current = { x: clientX, y: clientY };
 
-      setLocalPos((prev) => ({
-        x: Math.max(10, prev.x - dx),
-        y: Math.max(10, prev.y - dy)
-      }));
+      setLocalPos((prev) => {
+        const newX = prev.x - dx;
+        const newY = prev.y - dy;
+        // Strict boundary limits so video never goes invisible
+        return {
+          x: Math.min(Math.max(10, newX), window.innerWidth - 180),
+          y: Math.min(Math.max(10, newY), window.innerHeight - 240)
+        };
+      });
     };
 
-    const handleMouseUp = () => {
+    const handleDragEnd = () => {
       isDraggingRef.current = false;
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('touchmove', handleMouseMove);
-    window.addEventListener('touchend', handleMouseUp);
+    window.addEventListener('mousemove', handleDragMove);
+    window.addEventListener('mouseup', handleDragEnd);
+    window.addEventListener('touchmove', handleDragMove, { passive: false });
+    window.addEventListener('touchend', handleDragEnd);
 
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('touchmove', handleMouseMove);
-      window.removeEventListener('touchend', handleMouseUp);
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleDragMove);
+      window.removeEventListener('touchend', handleDragEnd);
     };
   }, []);
 
@@ -282,14 +294,23 @@ export default function App() {
     setIncomingCall(null);
   };
 
-  const endCall = () => {
-    if (localStreamRef.current) localStreamRef.current.getTracks().forEach((track) => track.stop());
+  const closeCallClean = (notifyPeer = true) => {
+    if (activeCall && notifyPeer && socketRef.current) {
+      socketRef.current.emit('hang-up', { to: activeCall.socketId });
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
     setActiveCall(null);
     setIncomingCall(null);
+  };
+
+  const endCall = () => {
+    closeCallClean(true);
   };
 
   const toggleAudio = () => {
@@ -348,7 +369,7 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------------------
-  // LOGIN / SIGNUP VIEW (WITH LEFT AND RIGHT ADS)
+  // LOGIN / SIGNUP VIEW
   // ---------------------------------------------------------------------------
   if (!token) {
     return (
@@ -573,7 +594,7 @@ export default function App() {
                     Ratio: {isPortrait ? '9:16' : '16:9'}
                   </button>
 
-                  {/* Remote / Main Video Container with dynamic aspect ratio */}
+                  {/* Remote / Main Video Container */}
                   <div className={`transition-all duration-300 relative overflow-hidden rounded-3xl border border-slate-800 shadow-2xl bg-black ${
                     isPortrait ? 'w-full max-w-[380px] aspect-[9/16]' : 'w-full max-w-[900px] aspect-[16/9]'
                   }`}>
@@ -585,10 +606,10 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Draggable Local Video Box (WhatsApp Style) */}
+                  {/* Stable & Bound-Restricted Draggable Local Video Box */}
                   <div
-                    onMouseDown={handleMouseDown}
-                    onTouchStart={handleMouseDown}
+                    onMouseDown={handleDragStart}
+                    onTouchStart={handleDragStart}
                     style={{ right: `${localPos.x}px`, bottom: `${localPos.y}px` }}
                     className="absolute z-40 w-36 h-48 sm:w-44 sm:h-60 bg-black/90 rounded-2xl border-2 border-cyan-500/50 overflow-hidden shadow-2xl cursor-grab active:cursor-grabbing select-none"
                     title="Drag to move"
@@ -597,7 +618,7 @@ export default function App() {
                     <span className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm text-[9px] text-cyan-400 px-2 py-0.5 rounded font-mono">You (Drag)</span>
                   </div>
 
-                  {/* Call Controls Bar (Audio, Video, Switch Camera, End Call) */}
+                  {/* Call Controls Bar */}
                   <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 flex items-center space-x-3 bg-[#05050D]/90 backdrop-blur-xl border border-slate-800 px-5 py-2.5 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.8)]">
                     <button
                       onClick={toggleAudio}
@@ -614,7 +635,7 @@ export default function App() {
                       {isVideoMuted ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
                     </button>
 
-                    {/* Switch Camera Button placed precisely between video toggle and call disconnect */}
+                    {/* Switch Camera Button */}
                     <button
                       onClick={switchCamera}
                       className="p-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded-full transition-all duration-200 border border-slate-700 hover:border-cyan-500/40"
@@ -750,7 +771,7 @@ export default function App() {
                   </form>
                 </div>
 
-                {/* 3rd Ad Section (Right below Stream Chat) */}
+                {/* 3rd Ad Section */}
                 <div className="bg-[#090b16]/60 border border-slate-800 rounded-3xl p-4 backdrop-blur-md">
                   <div className="text-[10px] text-slate-500 text-center uppercase tracking-widest mb-2">Sponsored Ad</div>
                   <AdScriptBox src="//conventionalresponse.com/b.XJVYssd-GDl/0/YoW/cS/Ne-mw9suKZPUilrkbPKT/cj0tMujoU" />

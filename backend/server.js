@@ -1,168 +1,165 @@
-require('dotenv').config();
-const dns = require('dns');
-dns.setServers(['8.8.8.8', '1.1.1.1']);
-
 const express = require('express');
 const http = require('http');
-const mongoose = require('mongoose');
 const { Server } = require('socket.io');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_neon_key_2026';
 
 app.use(cors());
 app.use(express.json());
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/neondb';
-mongoose.connect(MONGO_URI)
-  .then(() => console.log('MongoDB Connected Successfully'))
-  .catch(err => console.log('MongoDB Connection Error:', err));
+const JWT_SECRET = 'neon_connect_super_secret_key_2026';
 
-const userSchema = new mongoose.Schema({
-  userId: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: { type: String, default: 'user' }
-});
-const User = mongoose.model('User', userSchema);
-
-// Auto-seed Admin Account & Demo Users
-const seedUsers = async () => {
-  try {
-    // Create Admin User
-    const adminExists = await User.findOne({ userId: 'admin' });
-    if (!adminExists) {
-      const adminPass = await bcrypt.hash('Heybro12..', 10);
-      await User.create({ userId: 'admin', password: adminPass, role: 'admin' });
-      console.log('Admin account created: admin / Heybro12..');
-    }
-
-    // Seed Demo Users
-    for (let i = 1; i <= 5; i++) {
-      const id = `user${i.toString().padStart(2, '0')}`;
-      const pass = `pass${i.toString().padStart(2, '0')}`;
-      const exists = await User.findOne({ userId: id });
-      if (!exists) {
-        const hashed = await bcrypt.hash(pass, 10);
-        await User.create({ userId: id, password: hashed, role: 'user' });
-      }
-    }
-  } catch (err) {
-    console.log('Seeding status:', err.message);
-  }
+// In-memory user store (Username -> { password, role })
+// Default Admin Account: ID -> admin, Password -> adminpassword
+const users = {
+  'admin': { password: 'adminpassword', role: 'admin' }
 };
-seedUsers();
 
-// Middleware: Verify Admin Access
-const verifyAdmin = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: 'No token provided' });
-  const token = authHeader.split(' ')[1];
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err || decoded.role !== 'admin') {
-      return res.status(403).json({ error: 'Access denied: Admin privileges required' });
-    }
-    req.user = decoded;
+// Store online users: socket.id -> userId
+const onlineUsers = new Map();
+
+// Middleware to verify JWT for API requests
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Access token missing' });
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid token' });
+    req.user = user;
     next();
   });
 };
 
-// Signup Endpoint
-app.post('/api/signup', async (req, res) => {
-  try {
-    const { userId, password } = req.body;
-    if (!userId || !password) return res.status(400).json({ error: 'User ID and password are required' });
-
-    const existingUser = await User.findOne({ userId });
-    if (existingUser) return res.status(400).json({ error: 'User ID already exists' });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await User.create({ userId, password: hashedPassword, role: 'user' });
-    const token = jwt.sign({ userId: newUser.userId, role: newUser.role }, JWT_SECRET);
-
-    res.json({ token, userId: newUser.userId, role: newUser.role });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error during signup' });
-  }
-});
-
-// Login Endpoint
-app.post('/api/login', async (req, res) => {
+// --- Auth Routes ---
+app.post('/api/signup', (req, res) => {
   const { userId, password } = req.body;
-  const user = await User.findOne({ userId });
-  if (!user) return res.status(400).json({ error: 'User not found' });
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.status(400).json({ error: 'Invalid password' });
+  if (!userId || !password) {
+    return res.status(400).json({ error: 'User ID and password are required' });
+  }
+  if (users[userId]) {
+    return res.status(400).json({ error: 'User ID already exists' });
+  }
 
-  const token = jwt.sign({ userId: user.userId, role: user.role }, JWT_SECRET);
-  res.json({ token, userId: user.userId, role: user.role });
+  users[userId] = { password, role: 'user' };
+  const token = jwt.sign({ userId, role: 'user' }, JWT_SECRET);
+  res.json({ token, userId, role: 'user' });
 });
 
-// ADMIN: Get All Users
-app.get('/api/admin/users', verifyAdmin, async (req, res) => {
-  try {
-    const users = await User.find({}, 'userId role');
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch users' });
+app.post('/api/login', (req, res) => {
+  const { userId, password } = req.body;
+  const user = users[userId];
+
+  if (!user || user.password !== password) {
+    return res.status(401).json({ error: 'Invalid User ID or password' });
+  }
+
+  const token = jwt.sign({ userId, role: user.role }, JWT_SECRET);
+  res.json({ token, userId, role: user.role });
+});
+
+// --- Admin Routes ---
+app.get('/api/admin/users', verifyToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  const userList = Object.keys(users).map(id => ({
+    userId: id,
+    role: users[id].role
+  }));
+  res.json(userList);
+});
+
+app.delete('/api/admin/users/:userId', verifyToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  const targetId = req.params.userId;
+  if (!users[targetId]) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  if (users[targetId].role === 'admin') {
+    return res.status(400).json({ error: 'Cannot delete admin account' });
+  }
+
+  delete users[targetId];
+  res.json({ message: 'User deleted successfully' });
+});
+
+// --- Socket.io Signaling & Chat ---
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
   }
 });
-
-// ADMIN: Delete a User
-app.delete('/api/admin/users/:targetUserId', verifyAdmin, async (req, res) => {
-  try {
-    const { targetUserId } = req.params;
-    if (targetUserId === 'admin') {
-      return res.status(400).json({ error: 'Cannot delete primary admin account' });
-    }
-    await User.deleteOne({ userId: targetUserId });
-    res.json({ message: `User ${targetUserId} deleted successfully` });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to delete user' });
-  }
-});
-
-const onlineUsers = new Map();
 
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
-  if (!token) return next(new Error("Authentication error"));
+  if (!token) return next(new Error('Authentication error'));
+
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) return next(new Error("Authentication error"));
-    socket.userId = decoded.userId;
+    if (err) return next(new Error('Authentication error'));
+    socket.user = decoded;
     next();
   });
 });
 
 io.on('connection', (socket) => {
-  onlineUsers.set(socket.id, socket.userId);
-  io.emit('online-users', Array.from(onlineUsers.entries()));
+  const userId = socket.user.userId;
+  onlineUsers.set(socket.id, userId);
 
-  socket.on('call-user', (data) => {
-    io.to(data.to).emit('call-made', { offer: data.offer, socket: socket.id, fromUser: socket.userId });
+  // Broadcast updated online users list to everyone
+  updateOnlineUsers();
+
+  socket.on('call-user', ({ to, offer }) => {
+    io.to(to).emit('call-made', {
+      offer,
+      socket: socket.id,
+      fromUser: userId
+    });
   });
 
-  socket.on('make-answer', (data) => {
-    io.to(data.to).emit('answer-made', { socket: socket.id, answer: data.answer });
+  socket.on('make-answer', ({ to, answer }) => {
+    io.to(to).emit('answer-made', {
+      socket: socket.id,
+      answer
+    });
   });
 
-  socket.on('ice-candidate', (data) => {
-    io.to(data.to).emit('ice-candidate-received', { socket: socket.id, candidate: data.candidate });
+  socket.on('ice-candidate', ({ to, candidate }) => {
+    io.to(to).emit('ice-candidate-received', {
+      socket: socket.id,
+      candidate
+    });
   });
 
-  socket.on('send-message', (data) => {
-    io.to(data.to).emit('receive-message', { from: socket.userId, text: data.text });
+  // WhatsApp style mutual call hang-up event
+  socket.on('hang-up', ({ to }) => {
+    io.to(to).emit('call-hung-up');
+  });
+
+  socket.on('send-message', ({ to, text }) => {
+    io.to(to).emit('receive-message', {
+      from: userId,
+      text
+    });
   });
 
   socket.on('disconnect', () => {
     onlineUsers.delete(socket.id);
-    io.emit('online-users', Array.from(onlineUsers.entries()));
+    updateOnlineUsers();
   });
 });
 
+function updateOnlineUsers() {
+  io.emit('online-users', Array.from(onlineUsers.entries()));
+}
+
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`NeonConnect Server running on port ${PORT}`);
+});
