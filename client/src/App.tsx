@@ -127,7 +127,7 @@ l.parentNode.insertBefore(s, l);
 
     socket.on('call-made', async (data: { offer: RTCSessionDescriptionInit; socket: string; fromUser: string }) => {
       if (isInCall) {
-        // Agar pehle se call mein hain, toh automatic accept karke group call expand karo
+        // Agar pehle se call mein hain aur koi doosra user call karta hai (jaise U3), toh auto accept karke mesh expand karo
         await autoAcceptCall(data.socket, data.fromUser, data.offer);
       } else {
         setIncomingCall({ fromSocketId: data.socket, fromUser: data.fromUser, offer: data.offer });
@@ -276,7 +276,13 @@ l.parentNode.insertBefore(s, l);
 
     const pc = getOrCreatePeerConnection(fromSocketId, fromUser, stream);
     try {
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      // Agar pehle se remote description set hai, toh clash avoid karne ke liye check karein
+      if (pc.signalingState === 'stable' || pc.signalingState === 'have-local-offer') {
+        // Agar humne pehle offer bhej diya tha, toh rollback ya naya handle karein, ya seedha set karein
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      } else {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      }
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socketRef.current?.emit('make-answer', { to: fromSocketId, answer });
