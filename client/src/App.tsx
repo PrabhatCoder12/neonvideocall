@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Video, VideoOff, Mic, MicOff, PhoneOff, Send, LogOut, User, Lock, PhoneCall, Shield, Trash2, RefreshCw, Eye, EyeOff, UserPlus } from 'lucide-react';
+import { Video, VideoOff, Mic, MicOff, PhoneOff, Send, LogOut, User, Lock, PhoneCall, Shield, Trash2, RefreshCw, Eye, EyeOff, UserPlus, SwitchCamera } from 'lucide-react';
 
 const SOCKET_SERVER_URL = 'https://neonconnect-backend.onrender.com';
 
@@ -59,6 +59,13 @@ export default function App() {
   const [incomingCall, setIncomingCall] = useState<{ fromSocketId: string; fromUser: string; offer: RTCSessionDescriptionInit } | null>(null);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+
+  // Video Aspect Ratio & Draggable Box States
+  const [isPortrait, setIsPortrait] = useState(true); // true = 9:16, false = 16:9
+  const [localPos, setLocalPos] = useState({ x: 24, y: 24 }); // offset from bottom-right
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
 
   // Chat State
   const [messages, setMessages] = useState<Message[]>([]);
@@ -114,6 +121,46 @@ export default function App() {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Dragging Handlers for Local Video Box
+  const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
+    isDraggingRef.current = true;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    dragStartRef.current = { x: clientX, y: clientY };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent | TouchEvent) => {
+      if (!isDraggingRef.current) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      const dx = clientX - dragStartRef.current.x;
+      const dy = clientY - dragStartRef.current.y;
+      dragStartRef.current = { x: clientX, y: clientY };
+
+      setLocalPos((prev) => ({
+        x: Math.max(10, prev.x - dx),
+        y: Math.max(10, prev.y - dy)
+      }));
+    };
+
+    const handleMouseUp = () => {
+      isDraggingRef.current = false;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchmove', handleMouseMove);
+    window.addEventListener('touchend', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleMouseMove);
+      window.removeEventListener('touchend', handleMouseUp);
+    };
+  }, []);
 
   const fetchUsersForAdmin = async () => {
     if (!token) return;
@@ -187,8 +234,11 @@ export default function App() {
     endCall();
   };
 
-  const setupMediaAndPeer = async (targetSocketId: string) => {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  const setupMediaAndPeer = async (targetSocketId: string, overrideFacingMode = 'user') => {
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: overrideFacingMode }, 
+      audio: true 
+    });
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
@@ -213,7 +263,7 @@ export default function App() {
 
   const startCall = async (targetUser: OnlineUser) => {
     setActiveCall(targetUser);
-    const pc = await setupMediaAndPeer(targetUser.socketId);
+    const pc = await setupMediaAndPeer(targetUser.socketId, facingMode);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socketRef.current?.emit('call-user', { to: targetUser.socketId, offer });
@@ -223,7 +273,7 @@ export default function App() {
     if (!incomingCall) return;
     setActiveCall({ socketId: incomingCall.fromSocketId, userId: incomingCall.fromUser });
 
-    const pc = await setupMediaAndPeer(incomingCall.fromSocketId);
+    const pc = await setupMediaAndPeer(incomingCall.fromSocketId, facingMode);
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -262,6 +312,32 @@ export default function App() {
     }
   };
 
+  const switchCamera = async () => {
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: nextMode }, audio: true });
+      localStreamRef.current = stream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+
+      if (peerConnectionRef.current) {
+        const videoTrack = stream.getVideoTracks()[0];
+        const senders = peerConnectionRef.current.getSenders();
+        const videoSender = senders.find((s) => s.track && s.track.kind === 'video');
+        if (videoSender && videoTrack) {
+          videoSender.replaceTrack(videoTrack);
+        }
+      }
+    } catch (e) {
+      console.error("Camera switch error:", e);
+    }
+  };
+
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || !activeCall) return;
@@ -277,61 +353,42 @@ export default function App() {
   if (!token) {
     return (
       <div className="min-h-screen bg-[#05050D] flex items-center justify-center p-4 relative overflow-hidden text-white font-sans select-none">
-
-        {/* Cyberpunk Glow Orbs */}
         <div className="absolute -top-32 -left-32 w-[600px] h-[600px] bg-pink-600/20 rounded-full blur-[140px] pointer-events-none"></div>
         <div className="absolute -bottom-32 -right-32 w-[600px] h-[600px] bg-cyan-500/20 rounded-full blur-[140px] pointer-events-none"></div>
 
-        {/* Synthetic City Grid Lines */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent_0%,rgba(5,5,13,0.8)_80%),radial-gradient(ellipse_at_center,transparent_0%,#05050D_100%)] pointer-events-none z-0"></div>
-
-        {/* Perspective Road Lines */}
-        <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-pink-500/10 via-cyan-500/5 to-transparent pointer-events-none z-0 border-t border-pink-500/20"></div>
-
-        {/* Main Content Layout with Left & Right Ads */}
         <div className="relative z-10 w-full max-w-[1280px] flex flex-col lg:flex-row items-center justify-center gap-8">
           
-          {/* 1st Ad Box (Left of Login Box) */}
+          {/* 1st Ad Box (Left) */}
           <div className="hidden lg:flex flex-col items-center justify-center w-[300px] min-h-[420px] bg-[#090b16]/70 border border-slate-800 rounded-[30px] p-4 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)]">
             <span className="text-[10px] tracking-widest text-slate-500 uppercase mb-3">Advertisement</span>
             <AdScriptBox src="//conventionalresponse.com/b.XoVZsfdJGYlT0ZYdWHcB/-eNmP9FuWZnU/lzkOPwTXcK0eMQj/Uk2KMjTycLtFNxz-Qfy/N/TQYuyWM_QE" />
           </div>
 
-          {/* Main Card Container (Login Box) */}
+          {/* Login Box */}
           <div className="w-full max-w-[420px]">
             <div className="p-[2px] rounded-[36px] bg-gradient-to-r from-[#f43f5e] via-[#d946ef] to-[#06b6d4] shadow-[0_0_50px_rgba(236,72,153,0.35),0_0_50px_rgba(6,182,212,0.35)]">
               <div className="bg-[#090b16]/95 backdrop-blur-3xl rounded-[34px] p-8 sm:p-10 text-center">
-                
-                {/* Neon "N" Logo Badge */}
                 <div className="inline-flex items-center justify-center w-20 h-20 mb-4 rounded-3xl bg-transparent relative">
-                  <span className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400 drop-shadow-[0_0_20px_rgba(236,72,153,0.8)] font-sans">
+                  <span className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400 font-sans">
                     N
                   </span>
                 </div>
 
-                {/* Title & Subtitle */}
                 <h1 className="text-3xl font-black tracking-widest mb-1">
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#ff3b94] via-[#e040fb] to-[#00e5ff] drop-shadow-[0_0_12px_rgba(255,59,148,0.6)]">
-                    NEON
-                  </span>
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00e5ff] to-[#00b0ff] drop-shadow-[0_0_12px_rgba(0,229,255,0.6)]">
-                    CONNECT
-                  </span>
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#ff3b94] via-[#e040fb] to-[#00e5ff]">NEON</span>
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00e5ff] to-[#00b0ff]">CONNECT</span>
                 </h1>
                 <p className="text-slate-400 text-sm mb-8 font-light tracking-wide">
                   {isSignup ? 'Create account to access network' : 'Sign in to access network'}
                 </p>
 
                 {authError && (
-                  <div className="mb-6 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-xl text-center shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                  <div className="mb-6 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-xl text-center">
                     {authError}
                   </div>
                 )}
 
-                {/* Form Controls */}
                 <form onSubmit={handleAuth} className="space-y-4">
-                  
-                  {/* User ID Field */}
                   <div className="relative group">
                     <User className="absolute left-4 top-4 text-slate-500 group-focus-within:text-pink-400 w-5 h-5 transition-colors" />
                     <input
@@ -339,12 +396,11 @@ export default function App() {
                       placeholder="User ID"
                       value={inputUserId}
                       onChange={(e) => setInputUserId(e.target.value)}
-                      className="w-full bg-[#0d1124]/80 border border-slate-800/80 rounded-2xl py-3.5 pl-12 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all shadow-inner"
+                      className="w-full bg-[#0d1124]/80 border border-slate-800/80 rounded-2xl py-3.5 pl-12 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                       required
                     />
                   </div>
 
-                  {/* Password Field */}
                   <div className="relative group">
                     <Lock className="absolute left-4 top-4 text-slate-500 group-focus-within:text-cyan-400 w-5 h-5 transition-colors" />
                     <input
@@ -352,7 +408,7 @@ export default function App() {
                       placeholder="Password"
                       value={inputPassword}
                       onChange={(e) => setInputPassword(e.target.value)}
-                      className="w-full bg-[#0d1124]/80 border border-slate-800/80 rounded-2xl py-3.5 pl-12 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all shadow-inner"
+                      className="w-full bg-[#0d1124]/80 border border-slate-800/80 rounded-2xl py-3.5 pl-12 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                       required
                     />
                     <button
@@ -364,11 +420,10 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Neon Action Button */}
                   <div className="pt-2">
                     <button
                       type="submit"
-                      className="w-full h-13 bg-gradient-to-r from-[#ff2a8d] via-[#9a34eb] to-[#00d4ff] hover:opacity-95 text-white font-semibold text-base rounded-2xl shadow-[0_0_30px_rgba(255,42,141,0.5),0_0_30px_rgba(0,212,255,0.4)] transition-all duration-300 transform active:scale-98 flex items-center justify-center space-x-2 border border-white/20"
+                      className="w-full h-13 bg-gradient-to-r from-[#ff2a8d] via-[#9a34eb] to-[#00d4ff] hover:opacity-95 text-white font-semibold text-base rounded-2xl shadow-[0_0_30px_rgba(255,42,141,0.5),0_0_30px_rgba(0,212,255,0.4)] transition-all duration-300 flex items-center justify-center space-x-2 border border-white/20"
                     >
                       {isSignup ? <UserPlus className="w-5 h-5" /> : null}
                       <span>{isSignup ? 'Create Account' : 'Sign In'}</span>
@@ -376,7 +431,6 @@ export default function App() {
                   </div>
                 </form>
 
-                {/* Mode Switcher Link */}
                 <div className="mt-8 text-xs text-slate-400">
                   <span>{isSignup ? 'Already have an account? ' : "Don't have an account? "}</span>
                   <button
@@ -390,12 +444,11 @@ export default function App() {
                     {isSignup ? 'Sign In' : 'Create One'}
                   </button>
                 </div>
-
               </div>
             </div>
           </div>
 
-          {/* 2nd Ad Box (Right of Login Box) */}
+          {/* 2nd Ad Box (Right) */}
           <div className="hidden lg:flex flex-col items-center justify-center w-[300px] min-h-[420px] bg-[#090b16]/70 border border-slate-800 rounded-[30px] p-4 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)]">
             <span className="text-[10px] tracking-widest text-slate-500 uppercase mb-3">Advertisement</span>
             <AdScriptBox src="//conventionalresponse.com/b/X_VOsod.Gdli0dYdWXcI/Belm/9/udZaUKlzkTPPTBce0mMxjTUh1aOSDdUqtzN/zGQoy/NHTOUL4GONQ-" />
@@ -407,7 +460,7 @@ export default function App() {
   }
 
   // ---------------------------------------------------------------------------
-  // MAIN APP BOARD (AFTER LOGGING IN)
+  // MAIN APP BOARD
   // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#05050D] text-white flex flex-col font-sans">
@@ -416,7 +469,7 @@ export default function App() {
           <div className="w-9 h-9 rounded-xl bg-gradient-to-r from-pink-500 to-cyan-400 flex items-center justify-center font-black text-slate-950 text-base shadow-[0_0_20px_rgba(236,72,153,0.5)]">
             N
           </div>
-          <h1 className="text-xl font-black tracking-wider bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400 bg-clip-text text-transparent drop-shadow-[0_0_10px_rgba(236,72,153,0.4)]">
+          <h1 className="text-xl font-black tracking-wider bg-gradient-to-r from-pink-500 via-purple-400 to-cyan-400 bg-clip-text text-transparent">
             NEONCONNECT
           </h1>
         </div>
@@ -507,36 +560,73 @@ export default function App() {
       ) : (
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-[1600px] w-full mx-auto">
           <div className="lg:col-span-3 flex flex-col space-y-4">
+            
+            {/* Main Video Call Screen Box */}
             <div className="relative flex-1 bg-[#090b16]/60 border border-slate-800 rounded-3xl overflow-hidden min-h-[500px] flex items-center justify-center backdrop-blur-md shadow-2xl">
               {activeCall ? (
                 <>
-                  <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                  {/* Aspect Ratio Toggle Button on Top Right of Video Screen */}
+                  <button
+                    onClick={() => setIsPortrait(!isPortrait)}
+                    className="absolute top-4 right-4 z-30 bg-black/70 hover:bg-black/90 text-cyan-400 border border-cyan-500/30 px-3 py-1.5 rounded-xl text-xs font-mono font-bold backdrop-blur-md shadow-lg transition"
+                  >
+                    Ratio: {isPortrait ? '9:16' : '16:9'}
+                  </button>
 
-                  <div className="absolute top-6 left-6 bg-[#05050D]/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-800 flex items-center space-x-2">
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-                    <span className="text-xs text-slate-300 font-medium">Connected: <strong className="text-cyan-400">{activeCall.userId}</strong></span>
+                  {/* Remote / Main Video Container with dynamic aspect ratio */}
+                  <div className={`transition-all duration-300 relative overflow-hidden rounded-3xl border border-slate-800 shadow-2xl bg-black ${
+                    isPortrait ? 'w-full max-w-[380px] aspect-[9/16]' : 'w-full max-w-[900px] aspect-[16/9]'
+                  }`}>
+                    <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+
+                    <div className="absolute top-4 left-4 bg-[#05050D]/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 flex items-center space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                      <span className="text-xs text-slate-300 font-medium">{activeCall.userId}</span>
+                    </div>
                   </div>
 
-                  <div className="absolute bottom-6 right-6 w-56 h-40 bg-black/90 rounded-2xl border border-cyan-500/40 overflow-hidden shadow-2xl">
-                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                  {/* Draggable Local Video Box (WhatsApp Style) */}
+                  <div
+                    onMouseDown={handleMouseDown}
+                    onTouchStart={handleMouseDown}
+                    style={{ right: `${localPos.x}px`, bottom: `${localPos.y}px` }}
+                    className="absolute z-40 w-36 h-48 sm:w-44 sm:h-60 bg-black/90 rounded-2xl border-2 border-cyan-500/50 overflow-hidden shadow-2xl cursor-grab active:cursor-grabbing select-none"
+                    title="Drag to move"
+                  >
+                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover pointer-events-none" />
+                    <span className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm text-[9px] text-cyan-400 px-2 py-0.5 rounded font-mono">You (Drag)</span>
                   </div>
 
-                  <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center space-x-4 bg-[#05050D]/90 backdrop-blur-xl border border-slate-800 px-6 py-3 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.8)]">
+                  {/* Call Controls Bar (Audio, Video, Switch Camera, End Call) */}
+                  <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 flex items-center space-x-3 bg-[#05050D]/90 backdrop-blur-xl border border-slate-800 px-5 py-2.5 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.8)]">
                     <button
                       onClick={toggleAudio}
-                      className={`p-3.5 rounded-full transition-all duration-200 ${isAudioMuted ? 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
+                      className={`p-3 rounded-full transition-all duration-200 ${isAudioMuted ? 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
+                      title="Mute Audio"
                     >
                       {isAudioMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                     </button>
                     <button
                       onClick={toggleVideo}
-                      className={`p-3.5 rounded-full transition-all duration-200 ${isVideoMuted ? 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
+                      className={`p-3 rounded-full transition-all duration-200 ${isVideoMuted ? 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
+                      title="Mute Video"
                     >
                       {isVideoMuted ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
                     </button>
+
+                    {/* Switch Camera Button placed precisely between video toggle and call disconnect */}
+                    <button
+                      onClick={switchCamera}
+                      className="p-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded-full transition-all duration-200 border border-slate-700 hover:border-cyan-500/40"
+                      title="Switch Camera"
+                    >
+                      <SwitchCamera className="w-5 h-5" />
+                    </button>
+
                     <button
                       onClick={endCall}
-                      className="p-3.5 bg-red-600 hover:bg-red-500 text-white rounded-full transition-all duration-200 shadow-[0_0_20px_rgba(220,38,38,0.4)] transform hover:scale-105"
+                      className="p-3 bg-red-600 hover:bg-red-500 text-white rounded-full transition-all duration-200 shadow-[0_0_20px_rgba(220,38,38,0.4)] transform hover:scale-105"
+                      title="End Call"
                     >
                       <PhoneOff className="w-5 h-5" />
                     </button>
