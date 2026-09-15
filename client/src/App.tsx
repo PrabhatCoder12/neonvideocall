@@ -122,7 +122,6 @@ export default function App() {
       }
     });
 
-    // WhatsApp style remote hangup listener
     socket.on('call-hung-up', () => {
       closeCallClean(false);
     });
@@ -138,7 +137,7 @@ export default function App() {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Bulletproof Dragging Handlers (Stops page scrolling & restricts box inside screen)
+  // Bulletproof Dragging Handlers
   const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
     if ('cancelable' in e && e.cancelable) e.preventDefault();
     isDraggingRef.current = true;
@@ -150,7 +149,7 @@ export default function App() {
   useEffect(() => {
     const handleDragMove = (e: MouseEvent | TouchEvent) => {
       if (!isDraggingRef.current) return;
-      if (e.cancelable) e.preventDefault(); // Completely stops page scrolling
+      if (e.cancelable) e.preventDefault();
 
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
@@ -159,12 +158,11 @@ export default function App() {
       dragStartRef.current = { x: clientX, y: clientY };
 
       setLocalPos((prev) => {
-        const boxWidth = 176; // w-44 width
-        const boxHeight = 240; // h-60 height
+        const boxWidth = 176;
+        const boxHeight = 240;
         const newX = prev.x + dx;
         const newY = prev.y + dy;
 
-        // Strict boundary clamping so video NEVER goes off screen or invisible
         return {
           x: Math.min(Math.max(10, newX), window.innerWidth - boxWidth - 10),
           y: Math.min(Math.max(10, newY), window.innerHeight - boxHeight - 10)
@@ -394,13 +392,11 @@ export default function App() {
 
         <div className="relative z-10 w-full max-w-[1280px] flex flex-col lg:flex-row items-center justify-center gap-8">
           
-          {/* 1st Ad Box (Left) */}
           <div className="hidden lg:flex flex-col items-center justify-center w-[300px] min-h-[420px] bg-[#090b16]/70 border border-slate-800 rounded-[30px] p-4 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)]">
             <span className="text-[10px] tracking-widest text-slate-500 uppercase mb-3">Advertisement</span>
             <AdScriptBox src="//conventionalresponse.com/b.XoVZsfdJGYlT0ZYdWHcB/-eNmP9FuWZnU/lzkOPwTXcK0eMQj/Uk2KMjTycLtFNxz-Qfy/N/TQYuyWM_QE" />
           </div>
 
-          {/* Login Box */}
           <div className="w-full max-w-[420px]">
             <div className="p-[2px] rounded-[36px] bg-gradient-to-r from-[#f43f5e] via-[#d946ef] to-[#06b6d4] shadow-[0_0_50px_rgba(236,72,153,0.35),0_0_50px_rgba(6,182,212,0.35)]">
               <div className="bg-[#090b16]/95 backdrop-blur-3xl rounded-[34px] p-8 sm:p-10 text-center">
@@ -484,7 +480,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* 2nd Ad Box (Right) */}
           <div className="hidden lg:flex flex-col items-center justify-center w-[300px] min-h-[420px] bg-[#090b16]/70 border border-slate-800 rounded-[30px] p-4 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)]">
             <span className="text-[10px] tracking-widest text-slate-500 uppercase mb-3">Advertisement</span>
             <AdScriptBox src="//conventionalresponse.com/b/X_VOsod.Gdli0dYdWXcI/Belm/9/udZaUKlzkTPPTBce0mMxjTUh1aOSDdUqtzN/zGQoy/NHTOUL4GONQ-" />
@@ -610,7 +605,7 @@ export default function App() {
                     Ratio: {isPortrait ? '9:16' : '16:9'}
                   </button>
 
-                  {/* Remote / Main Video Container */}
+                  {/* Remote / Main Video Container (Samne wale ki video) */}
                   <div className={`transition-all duration-300 relative overflow-hidden rounded-3xl border border-slate-800 shadow-2xl bg-black ${
                     isPortrait ? 'w-full max-w-[380px] aspect-[9/16]' : 'w-full max-w-[900px] aspect-[16/9]'
                   }`}>
@@ -622,7 +617,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Stable & Bound-Restricted Draggable Local Video Box */}
+                  {/* ALWAYS VISIBLE & Bound-Restricted Draggable Local Video Box (Tumhari apni video) */}
                   <div
                     onMouseDown={handleDragStart}
                     onTouchStart={handleDragStart}
@@ -651,7 +646,6 @@ export default function App() {
                       {isVideoMuted ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
                     </button>
 
-                    {/* Switch Camera Button */}
                     <button
                       onClick={switchCamera}
                       className="p-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded-full transition-all duration-200 border border-slate-700 hover:border-cyan-500/40"
@@ -751,7 +745,6 @@ export default function App() {
 
             {activeCall && (
               <div className="flex flex-col space-y-4">
-                {/* Chat Section */}
                 <div className="bg-[#090b16]/60 border border-slate-800 rounded-3xl p-5 flex flex-col h-72 backdrop-blur-md">
                   <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Stream Chat</h2>
                   <div className="flex-1 overflow-y-auto space-y-2.5 mb-3 text-xs pr-1">
@@ -787,10 +780,12 @@ export default function App() {
                   </form>
                 </div>
 
-                {/* 3rd Ad Section */}
-                <div className="bg-[#090b16]/60 border border-slate-800 rounded-3xl p-4 backdrop-blur-md">
-                  <div className="text-[10px] text-slate-500 text-center uppercase tracking-widest mb-2">Sponsored Ad</div>
-                  <AdScriptBox src="//conventionalresponse.com/b.XJVYssd-GDl/0/YoW/cS/Ne-mw9suKZPUilrkbPKT/cj0tMujoU" />
+                {/* Fixed visible Ad Box below stream chat */}
+                <div className="bg-[#090b16]/80 border border-slate-800 rounded-3xl p-4 backdrop-blur-md min-h-[100px] flex flex-col items-center justify-center">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-mono">Sponsored Ad</div>
+                  <div className="w-full flex items-center justify-center overflow-hidden">
+                    <AdScriptBox src="//conventionalresponse.com/b.XJVYssd-GDl/0/YoW/cS/Ne-mw9suKZPUilrkbPKT/cj0tMujoU" className="w-full min-h-[60px]" />
+                  </div>
                 </div>
               </div>
             )}
