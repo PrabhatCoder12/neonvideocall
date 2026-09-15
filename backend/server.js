@@ -12,16 +12,14 @@ app.use(express.json());
 
 const JWT_SECRET = 'neon_connect_super_secret_key_2026';
 
-// In-memory user store (Username -> { password, role })
-// Default Admin Account: ID -> admin, Password -> adminpassword
+// In-memory user store
+// Admin Credentials: ID -> admin, Password -> Heybro12..
 const users = {
-  'admin': { password: 'adminpassword', role: 'admin' }
+  'admin': { password: 'Heybro12..', role: 'admin' }
 };
 
-// Store online users: socket.id -> userId
 const onlineUsers = new Map();
 
-// Middleware to verify JWT for API requests
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -34,7 +32,6 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-// --- Auth Routes ---
 app.post('/api/signup', (req, res) => {
   const { userId, password } = req.body;
   if (!userId || !password) {
@@ -61,13 +58,14 @@ app.post('/api/login', (req, res) => {
   res.json({ token, userId, role: user.role });
 });
 
-// --- Admin Routes ---
+// Admin route updated to send passwords as well
 app.get('/api/admin/users', verifyToken, (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
   const userList = Object.keys(users).map(id => ({
     userId: id,
+    password: users[id].password,
     role: users[id].role
   }));
   res.json(userList);
@@ -89,7 +87,6 @@ app.delete('/api/admin/users/:userId', verifyToken, (req, res) => {
   res.json({ message: 'User deleted successfully' });
 });
 
-// --- Socket.io Signaling & Chat ---
 const io = new Server(server, {
   cors: {
     origin: '*',
@@ -111,42 +108,26 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   const userId = socket.user.userId;
   onlineUsers.set(socket.id, userId);
-
-  // Broadcast updated online users list to everyone
   updateOnlineUsers();
 
   socket.on('call-user', ({ to, offer }) => {
-    io.to(to).emit('call-made', {
-      offer,
-      socket: socket.id,
-      fromUser: userId
-    });
+    io.to(to).emit('call-made', { offer, socket: socket.id, fromUser: userId });
   });
 
   socket.on('make-answer', ({ to, answer }) => {
-    io.to(to).emit('answer-made', {
-      socket: socket.id,
-      answer
-    });
+    io.to(to).emit('answer-made', { socket: socket.id, answer });
   });
 
   socket.on('ice-candidate', ({ to, candidate }) => {
-    io.to(to).emit('ice-candidate-received', {
-      socket: socket.id,
-      candidate
-    });
+    io.to(to).emit('ice-candidate-received', { socket: socket.id, candidate });
   });
 
-  // WhatsApp style mutual call hang-up event
   socket.on('hang-up', ({ to }) => {
     io.to(to).emit('call-hung-up');
   });
 
   socket.on('send-message', ({ to, text }) => {
-    io.to(to).emit('receive-message', {
-      from: userId,
-      text
-    });
+    io.to(to).emit('receive-message', { from: userId, text });
   });
 
   socket.on('disconnect', () => {

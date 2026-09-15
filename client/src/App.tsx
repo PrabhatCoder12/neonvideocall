@@ -16,6 +16,7 @@ interface Message {
 
 interface UserAccount {
   userId: string;
+  password?: string;
   role: string;
 }
 
@@ -61,11 +62,21 @@ export default function App() {
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
 
-  // Video Aspect Ratio & Safe Draggable Box States
+  // Video Aspect Ratio & Absolute Draggable Box States
   const [isPortrait, setIsPortrait] = useState(true); // true = 9:16, false = 16:9
-  const [localPos, setLocalPos] = useState({ x: 24, y: 24 }); // offset from bottom-right
+  const [localPos, setLocalPos] = useState({ x: 20, y: 20 });
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
+
+  // Initialize local video position near bottom-right on load
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setLocalPos({
+        x: Math.max(20, window.innerWidth - 200),
+        y: Math.max(20, window.innerHeight - 280)
+      });
+    }
+  }, []);
 
   // Chat State
   const [messages, setMessages] = useState<Message[]>([]);
@@ -127,9 +138,9 @@ export default function App() {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Safe Dragging Handlers (Prevents page scroll and keeps video inside bounds)
+  // Bulletproof Dragging Handlers (Stops page scrolling & restricts box inside screen)
   const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault(); // Prevents page scrolling/moving
+    if ('cancelable' in e && e.cancelable) e.preventDefault();
     isDraggingRef.current = true;
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
@@ -139,7 +150,8 @@ export default function App() {
   useEffect(() => {
     const handleDragMove = (e: MouseEvent | TouchEvent) => {
       if (!isDraggingRef.current) return;
-      
+      if (e.cancelable) e.preventDefault(); // Completely stops page scrolling
+
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
       const dx = clientX - dragStartRef.current.x;
@@ -147,12 +159,15 @@ export default function App() {
       dragStartRef.current = { x: clientX, y: clientY };
 
       setLocalPos((prev) => {
-        const newX = prev.x - dx;
-        const newY = prev.y - dy;
-        // Strict boundary limits so video never goes invisible
+        const boxWidth = 176; // w-44 width
+        const boxHeight = 240; // h-60 height
+        const newX = prev.x + dx;
+        const newY = prev.y + dy;
+
+        // Strict boundary clamping so video NEVER goes off screen or invisible
         return {
-          x: Math.min(Math.max(10, newX), window.innerWidth - 180),
-          y: Math.min(Math.max(10, newY), window.innerHeight - 240)
+          x: Math.min(Math.max(10, newX), window.innerWidth - boxWidth - 10),
+          y: Math.min(Math.max(10, newY), window.innerHeight - boxHeight - 10)
         };
       });
     };
@@ -530,9 +545,9 @@ export default function App() {
               <div>
                 <h2 className="text-lg font-bold text-amber-400 flex items-center space-x-2">
                   <Shield className="w-5 h-5" />
-                  <span>Admin User Management</span>
+                  <span>Admin User Management & Passwords</span>
                 </h2>
-                <p className="text-xs text-slate-400 mt-0.5">Moderate registered user accounts and remove inappropriate usernames.</p>
+                <p className="text-xs text-slate-400 mt-0.5">View user credentials, manage accounts, and remove inappropriate usernames.</p>
               </div>
               <button
                 onClick={fetchUsersForAdmin}
@@ -557,8 +572,9 @@ export default function App() {
                       {u.userId.substring(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <span className="text-sm font-semibold text-slate-200 block">{u.userId}</span>
-                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
+                      <span className="text-sm font-semibold text-slate-200 block">ID: {u.userId}</span>
+                      <span className="text-xs text-cyan-400 font-mono block">Password: {u.password || 'N/A'}</span>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full mt-1 inline-block ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
                         {u.role}
                       </span>
                     </div>
@@ -610,8 +626,8 @@ export default function App() {
                   <div
                     onMouseDown={handleDragStart}
                     onTouchStart={handleDragStart}
-                    style={{ right: `${localPos.x}px`, bottom: `${localPos.y}px` }}
-                    className="absolute z-40 w-36 h-48 sm:w-44 sm:h-60 bg-black/90 rounded-2xl border-2 border-cyan-500/50 overflow-hidden shadow-2xl cursor-grab active:cursor-grabbing select-none"
+                    style={{ left: `${localPos.x}px`, top: `${localPos.y}px` }}
+                    className="fixed z-40 w-36 h-48 sm:w-44 sm:h-60 bg-black/90 rounded-2xl border-2 border-cyan-500/50 overflow-hidden shadow-2xl cursor-grab active:cursor-grabbing select-none"
                     title="Drag to move"
                   >
                     <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover pointer-events-none" />
@@ -619,7 +635,7 @@ export default function App() {
                   </div>
 
                   {/* Call Controls Bar */}
-                  <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 flex items-center space-x-3 bg-[#05050D]/90 backdrop-blur-xl border border-slate-800 px-5 py-2.5 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.8)]">
+                  <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-30 flex items-center space-x-3 bg-[#05050D]/90 backdrop-blur-xl border border-slate-800 px-5 py-2.5 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.8)]">
                     <button
                       onClick={toggleAudio}
                       className={`p-3 rounded-full transition-all duration-200 ${isAudioMuted ? 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
